@@ -1,1 +1,1 @@
-# aslAutomatedInterpreter
+# American Sign Language Automated Interpreter
