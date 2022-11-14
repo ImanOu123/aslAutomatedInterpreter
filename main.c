@@ -6,6 +6,22 @@
 #include <math.h>
 #include "finalProjectConstants.h"
 
+//#include "TM4C123GH6PM.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include "Serial.h"
+#include "timer.h"
+#include "15348.h"
+
+
+//#include "TM4C123GH6PM.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+#include "MPU6050.h"
+
 void PLLInit()
 {
     SYSCTL_RCC2_R |= 0x80000000;
@@ -74,25 +90,6 @@ void ADC_Init(void){
     NVIC_EN0_R = 1 << 14;
 }
 
-// I2C initialization
-
-void PortB_Init(void)
-{
-    volatile unsigned long delay;
-    SYSCTL_RCGC2_R |= 0x00000002;     // 1) B clock
-    delay = SYSCTL_RCGC2_R; // reading register adds a delay, which we might need
-    GPIO_PORTB_LOCK_R = 0x4C4F434B;   // 2) unlock PortB
-    GPIO_PORTB_CR_R = 0xFF;           // 3) allow changes to PB
-    GPIO_PORTB_AMSEL_R = 0x00;        // 4) disable analog function
-    GPIO_PORTB_AFSEL_R = 0x00;        // 5) no alternate function
-    GPIO_PORTB_PCTL_R = 0x00000000;   // 6) GPIO clear bit PCTL
-    GPIO_PORTB_PUR_R = 0x00;          // 7) disable pull up resistors
-    GPIO_PORTB_DEN_R = 0xFF;          // 8) enable digital pins PB
-    GPIO_PORTB_DIR_R = 0xFF;          // 9) PB output
-
-    GPIO_PORTB_DATA_R = 0x0;
-}
-
 void PortF_Init(void)
 {
     volatile unsigned long delay;
@@ -108,6 +105,41 @@ void PortF_Init(void)
     GPIO_PORTF_DIR_R = 0x0E;          // 9) PF4,PF0 input, PF3,PF2,PF1 output
 }
 
+void PortD_Init(void)
+{
+    volatile unsigned long delay;
+    SYSCTL_RCGC2_R |= 0x00000008;     // 1) D clock
+    delay = SYSCTL_RCGC2_R; // reading register adds a delay, which we might need
+    GPIO_PORTD_LOCK_R = 0x4C4F434B;   // 2) unlock PortD
+    GPIO_PORTD_CR_R |= 0x0F;           // 3) allow changes to PD
+    GPIO_PORTD_AMSEL_R = 0x00;        // 4) disable analog function
+    GPIO_PORTD_AFSEL_R = 0x00;        // 5) no alternate function
+    GPIO_PORTD_PCTL_R = 0x00000000;   // 6) GPIO clear bit PCTL
+    GPIO_PORTD_PUR_R = 0x00;          // 7) disable pull up resistors
+    GPIO_PORTD_DEN_R |= 0x0F;          // 8) enable digital pins PD
+    GPIO_PORTD_DIR_R |= 0x0F;          // 9) PD output
+
+    GPIO_PORTD_DATA_R = 0x0;
+}
+
+
+void PortA_Init(void)
+{
+    volatile unsigned long delay;
+    SYSCTL_RCGC2_R |= 0x00000001;     // 1) A clock
+    delay = SYSCTL_RCGC2_R; // reading register adds a delay, which we might need
+    GPIO_PORTA_LOCK_R = 0x4C4F434B;   // 2) unlock PortA
+    GPIO_PORTA_CR_R |= 0xF0;           // 3) allow changes to PA
+    GPIO_PORTA_AMSEL_R &= ~0xF0;        // 4) disable analog function
+    GPIO_PORTA_AFSEL_R &= ~0xF0;        // 5) no alternate function
+    GPIO_PORTA_PCTL_R &= ~0xFFFF0000;   // 6) GPIO clear bit PCTL
+    GPIO_PORTA_PUR_R &= ~0xF0;          // 7) disable pull up resistors
+    GPIO_PORTA_DEN_R |= 0xF0;          // 8) enable digital pins PA
+    GPIO_PORTA_DIR_R |= 0xF0;          // 9) PA output
+
+    GPIO_PORTA_DATA_R &= ~0xF0;
+}
+
 // WAIT functions
 
 void delay_us(int n)
@@ -117,33 +149,29 @@ void delay_us(int n)
         for(j=0;j<3;j++) {}
 }
 
-void Delay(unsigned long counter)
-{
-    unsigned long i = 0;
-
-    for(i=0; i< counter*10000; i++);
-}
-
 // LCD helper functions - https://microcontrollerslab.com/16x2-lcd-interfacing-with-tm4c123-tiva-launchpad-keil-uvision/
 
 void writeNibble(unsigned char data, unsigned char control){
-
     // take four upper bytes of data
     data &= 0xF0;
 
     // write data and set control (RS - cmd or data)
-    GPIO_PORTB_DATA_R = data | control;
+    GPIO_PORTA_DATA_R |= data;
+    GPIO_PORTD_DATA_R = control;
 
     // enable pins
-    GPIO_PORTB_DATA_R = data | control | 0x04;
+    GPIO_PORTA_DATA_R |= data;
+    GPIO_PORTD_DATA_R = control | 0x04;
 
     delay_us(0);
 
     // disable pins - pulsed enable
-    GPIO_PORTB_DATA_R = data | control;
+    GPIO_PORTA_DATA_R |= data;
+    GPIO_PORTD_DATA_R = control;
 
     // clear data
-    GPIO_PORTB_DATA_R = 0;
+    GPIO_PORTA_DATA_R &= ~0xF0;
+    GPIO_PORTD_DATA_R = 0;
 
 }
 
@@ -155,9 +183,7 @@ void sendCommand(unsigned char command){
     writeNibble(command << 4, 0x0);
 
     if (command < 4){
-        SerialWrite("1");
         SysTick_Wait1ms(2);
-        SerialWrite("2");
     }
     else {
         delay_us(40);
@@ -190,11 +216,7 @@ void LCDInit(void)
     sendCommand(Set5x7FontSize);
     sendCommand(Function_set_4bit);
     sendCommand(moveCursorRight);
-
-    SerialWrite("hi2");
     sendCommand(clear_display);
-
-    SerialWrite("hi3");
     sendCommand(cursorBlink);
 }
 
@@ -236,11 +258,32 @@ unsigned long interruptCount = 0;
 char currLetter = '\0';
 char dispLetter = '\0';
 
+char msg[60];
+float AX, AY, AZ;
+float GX, GY, GZ;
+
+char *handOrienStatus = ""; // "LEANING"
 // variables to construct word
 
 bool button1Status = 0;
 bool button2Status = 0;
 bool dispWord = 0;
+
+void getHandOrienStatus (void){
+    // plank
+
+    if ((AX < 20) && (AY > 20)) handOrienStatus = "PLANK";
+
+    // leaning
+
+    if ((AX > 20) && (AY > 20)) handOrienStatus = "LEANING";
+
+    // otherwise
+
+    if ((AX < 20) && (AY < 20)) handOrienStatus = "";
+
+}
+
 
 bool listEq(char **list1, char **list2, int n){
     int i;
@@ -267,8 +310,8 @@ void getFingStatus(void){
 
     // sensor 3
 
-    if (filteredSensor3 <= 800) fingStatus[2] = "UNBENT";
-    else if (800 < filteredSensor3) fingStatus[2] = "BENT";
+    if (filteredSensor3 <= 650) fingStatus[2] = "UNBENT";
+    else if (650 < filteredSensor3) fingStatus[2] = "BENT";
 
     // sensor 4
 
@@ -359,94 +402,80 @@ bool getButtonStatus(int buttonNum){
 
 char getCurrASLLetter(void){
 
-    // A
-    char *A[5] = {"UNBENT", "BENT", "BENT", "BENT", "BENT"};
-    if (listEq(fingStatus, A, 5)) return 'a';
-
-
-
-    // B
-    char *B1[5] = {"MID", "UNBENT", "UNBENT", "UNBENT", "UNBENT"};
-    char *B2[5] = {"BENT", "UNBENT", "UNBENT", "UNBENT", "UNBENT"};
-    if (listEq(fingStatus, B1, 5) || listEq(fingStatus, B2, 5)) return 'b';
-
-    // C
-
-
-    // D
-
-    char *D1[5] = {"MID", "UNBENT", "BENT", "UNBENT", "UNBENT"};
-    char *D2[5] = {"UNBENT", "UNBENT", "BENT", "UNBENT", "UNBENT"};
-    if (listEq(fingStatus, D1, 5) || listEq(fingStatus, D2, 5)) return 'd';
-
-    // E
-
-    // F
-
-    char *F1[5] = {"MID", "BENT", "UNBENT", "UNBENT", "UNBENT"};
-    char *F2[5] = {"BENT", "BENT", "UNBENT", "UNBENT", "UNBENT"};
-    if (listEq(fingStatus, F1, 5) || listEq(fingStatus, F2, 5)) return 'f';
-
-    // G
-
-    // H
-
-    // I
-
-    char *I1[5] = {"MID", "BENT", "BENT", "BENT", "UNBENT"};
-    char *I2[5] = {"BENT", "BENT", "BENT", "BENT", "UNBENT"};
-    if (listEq(fingStatus, I1, 5) || listEq(fingStatus, I2, 5)) return 'i';
-
-    // J
-
-    // K
-
-    char *K[5] = {"UNBENT", "UNBENT", "UNBENT", "BENT", "BENT"};
-    if (listEq(fingStatus, K, 5)) return 'k';
-
-    // L
-
-    char *L[5] = {"UNBENT", "UNBENT", "BENT", "BENT", "BENT"};
-    if (listEq(fingStatus, L, 5)) return 'l';
-
-    // M
-
-    // N
-
-    // O
+    // with orientation
+    SerialWrite(handOrienStatus);
 
     // P
+    char *P[5] = {"UNBENT", "UNBENT", "UNBENT", "BENT", "BENT"};
+    if (listEq(fingStatus, P, 5) && (handOrienStatus == "PLANK")) return 'p';
 
     // Q
+    char *Q[5] = {"UNBENT", "UNBENT", "BENT", "BENT", "BENT"};
+    if (listEq(fingStatus, Q, 5) && (handOrienStatus == "PLANK")) return 'q';
 
-    // R
+    // G
+    char *G[5] = {"UNBENT", "UNBENT", "BENT", "BENT", "BENT"};
+    if (listEq(fingStatus, G, 5) && (handOrienStatus == "LEANING")) return 'g';
 
-    char *R1[5] = {"BENT", "UNBENT", "UNBENT", "BENT", "BENT"};
-    char *R2[5] = {"MID", "UNBENT", "UNBENT", "BENT", "BENT"};
-    if (listEq(fingStatus, R1, 5) || listEq(fingStatus, R2, 5)) return 'r';
+    // H
+    char *H[5] = {"UNBENT", "UNBENT", "UNBENT", "BENT", "BENT"};
+    if (listEq(fingStatus, H, 5) && (handOrienStatus == "LEANING")) return 'h';
 
-    // S
+    // others
+    if (handOrienStatus == ""){
+        // A
+        char *A[5] = {"UNBENT", "BENT", "BENT", "BENT", "BENT"};
+        if (listEq(fingStatus, A, 5)) return 'a';
 
-    // T
+        // B
+        char *B1[5] = {"MID", "UNBENT", "UNBENT", "UNBENT", "UNBENT"};
+        char *B2[5] = {"BENT", "UNBENT", "UNBENT", "UNBENT", "UNBENT"};
+        if (listEq(fingStatus, B1, 5) || listEq(fingStatus, B2, 5)) return 'b';
 
-    // U
+        // D
+        char *D[5] = {"BENT", "UNBENT", "BENT", "BENT", "BENT"};
+        if (listEq(fingStatus, D, 5)) return 'd';
 
-    // V
+        // E
+        char *E[5] = {"BENT", "BENT", "BENT", "BENT", "BENT"};
+        if (listEq(fingStatus, E, 5)) return 'e';
 
-    // W
+        // F
+        char *F1[5] = {"MID", "BENT", "UNBENT", "UNBENT", "UNBENT"};
+        char *F2[5] = {"BENT", "BENT", "UNBENT", "UNBENT", "UNBENT"};
+        if (listEq(fingStatus, F1, 5) || listEq(fingStatus, F2, 5)) return 'f';
 
-    char *W1[5] = {"MID", "UNBENT", "UNBENT", "UNBENT", "BENT"};
-    char *W2[5] = {"BENT", "UNBENT", "UNBENT", "UNBENT", "BENT"};
-    if (listEq(fingStatus, W1, 5) || listEq(fingStatus, W2, 5)) return 'w';
+        // I
+        char *I1[5] = {"MID", "BENT", "BENT", "BENT", "UNBENT"};
+        char *I2[5] = {"BENT", "BENT", "BENT", "BENT", "UNBENT"};
+        if (listEq(fingStatus, I1, 5) || listEq(fingStatus, I2, 5)) return 'i';
 
-    // X
+        // K
+        char *K[5] = {"UNBENT", "UNBENT", "UNBENT", "BENT", "BENT"};
+        if (listEq(fingStatus, K, 5)) return 'k';
 
-    // Y
+        // L
+        char *L[5] = {"UNBENT", "UNBENT", "BENT", "BENT", "BENT"};
+        if (listEq(fingStatus, L, 5)) return 'l';
 
-    char *Y[5] = {"UNBENT", "BENT", "BENT", "BENT", "UNBENT"};
-    if (listEq(fingStatus, Y, 5)) return 'y';
+        // R
+        char *R1[5] = {"BENT", "UNBENT", "UNBENT", "BENT", "BENT"};
+        char *R2[5] = {"MID", "UNBENT", "UNBENT", "BENT", "BENT"};
+        if (listEq(fingStatus, R1, 5) || listEq(fingStatus, R2, 5)) return 'r';
 
-    // Z
+        // W
+        char *W1[5] = {"MID", "UNBENT", "UNBENT", "UNBENT", "BENT"};
+        char *W2[5] = {"BENT", "UNBENT", "UNBENT", "UNBENT", "BENT"};
+        if (listEq(fingStatus, W1, 5) || listEq(fingStatus, W2, 5)) return 'w';
+
+        // V
+        char *V[5] = {"BENT", "UNBENT", "UNBENT", "BENT", "BENT"};
+        if (listEq(fingStatus, V, 5)) return 'v';
+
+        // Y
+        char *Y[5] = {"UNBENT", "BENT", "BENT", "BENT", "UNBENT"};
+        if (listEq(fingStatus, Y, 5)) return 'y';
+    }
 
     return dispLetter;
 }
@@ -501,6 +530,13 @@ void ADC0Seq0_Handler (void){
         SerialWriteInt(filteredSensor4);
         SerialWriteInt(filteredSensor5);
         SerialWriteLine("---");
+
+        SerialWriteLine("a vals");
+        SerialWriteInt(AX);
+        SerialWriteInt(AY);
+        SerialWriteInt(AZ);
+        SerialWriteLine("---");
+
     }
 
 
@@ -511,6 +547,7 @@ void ADC0Seq0_Handler (void){
         // determine new character
 
         getFingStatus();
+        getHandOrienStatus();
 
         currLetter = getCurrASLLetter();
 
@@ -521,11 +558,7 @@ void ADC0Seq0_Handler (void){
 
             dispLetter = currLetter;
 
-            SerialWriteLine(&dispLetter);
-
             writeChar(dispLetter);
-
-            SerialWriteLine(&dispLetter);
 
         }
     }
@@ -544,7 +577,24 @@ int main(void)
     SysTickInterruptInit();
     SetupSerial();
 
-    PortB_Init();
+    SysTick_Wait10ms(10);
+    MPU6050_init();
+    SysTick_Wait10ms(10);
+
+    char status = MPU6050_begin(1,0);
+
+    sprintf(msg,"MPU6050 status = %d ",(int)status);
+
+    SerialWriteLine(msg);
+    SysTick_Wait10ms(10);
+    SerialWriteLine("Calculating offsets, do not move MPU6050 ..");
+    SysTick_Wait10ms(10);
+    // mpu.upsideDownMounting = true; // uncomment this line if the MPU6050 is mounted upside-down
+    MPU6050_calcOffsets(1,1); // gyro and accelero
+    SerialWriteLine("Done!");
+
+    PortD_Init();
+    PortA_Init();
     LCDInit();
 
     PortF_Init();
@@ -553,7 +603,7 @@ int main(void)
 
     sendCommand(clear_display);
     sendCommand(FirstRow);
-    writeString("LCD");
+    writeString("START");
 
     while(1){
         button1Status = getButtonStatus(1);
@@ -568,5 +618,18 @@ int main(void)
             sendCommand(0x10);
         }
 
-    }
+        // extracting vals from MPU6050
+
+        MPU6050_update();
+
+        AX = MPU6050_getAngleX();
+        AY = MPU6050_getAngleY();
+        AZ = MPU6050_getAngleZ();
+
+        GX = MPU6050_getGyroX();
+        GY = MPU6050_getGyroY();
+        GZ = MPU6050_getGyroZ();
+
+        SysTick_Wait10ms(10);
+      }
 }
